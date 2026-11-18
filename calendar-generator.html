@@ -1,0 +1,787 @@
+<title>Calendar Generator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Terminal panel style · "Mono Ink copy" from Theme Studio. Dark first, light under the light-scheme selectors.
+   Layout: sticky tab bar, banner, three pages (BUILD · LIBRARY · SUBSCRIBE), 12-col grid ≥1100px. */
+:root {
+  --bg: #0a0a0a; --fg: #e8e8e8; --fg2: #b0b0b0; --dim: #7a7a7a; --line: #3d3d3d; --faint: #1c1c1c;
+  --blue: #0d2a7a; --blue-fg: #e6ecff; --blue-line: #3b6cff;
+  --k-cyan: #c0c0c0;    /* event kind (race, sprint, testing, final…) */
+  --k-yellow: #ebebeb;  /* unused on this page */
+  --k-magenta: #aaaaaa; /* unused on this page */
+  --k-white: #00f900;   /* totals, headline numbers */
+  --k-orange: #ff9300;  /* needs action: provisional, no live feed, from memory */
+  --k-red: #ff2b2b;     /* problem: failed, no dates published */
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  --fs: 13px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #fafafa; --fg: #1a1a1a; --fg2: #444444; --dim: #6b6b6b; --line: #c4c4c4; --faint: #ececec;
+  --blue: #dbe3ff; --blue-fg: #081a66; --blue-line: #2f56ff;
+  --k-cyan: #333333; --k-yellow: #161616; --k-magenta: #4d4d4d; --k-white: #008000; --k-orange: #b85500; --k-red: #d0021b;
+  color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #fafafa; --fg: #1a1a1a; --fg2: #444444; --dim: #6b6b6b; --line: #c4c4c4; --faint: #ececec;
+  --blue: #dbe3ff; --blue-fg: #081a66; --blue-line: #2f56ff;
+  --k-cyan: #333333; --k-yellow: #161616; --k-magenta: #4d4d4d; --k-white: #008000; --k-orange: #b85500; --k-red: #d0021b;
+  color-scheme: light; }
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --fg: #e8e8e8; --fg2: #b0b0b0; --dim: #7a7a7a; --line: #3d3d3d; --faint: #1c1c1c;
+  --blue: #0d2a7a; --blue-fg: #e6ecff; --blue-line: #3b6cff;
+  --k-cyan: #c0c0c0; --k-yellow: #ebebeb; --k-magenta: #aaaaaa; --k-white: #00f900; --k-orange: #ff9300; --k-red: #ff2b2b;
+  color-scheme: dark; }
+
+html, body { margin: 0; background: var(--bg); }
+[hidden] { display: none !important; }
+body {
+  color: var(--fg); font-family: var(--mono); font-size: var(--fs); line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 28px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+::selection { background: var(--blue); color: var(--blue-fg); }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; }
+a:hover { background: var(--blue); color: var(--blue-fg); }
+:focus-visible { outline: 1px solid var(--blue-line); outline-offset: 1px; background: var(--blue); color: var(--blue-fg); }
+
+.k-cyan { color: var(--k-cyan); }
+.k-white, b { color: var(--k-white); } b { font-weight: 700; }
+.k-orange { color: var(--k-orange); } .k-red { color: var(--k-red); }
+.k-fg { color: var(--fg); } .k-fg2 { color: var(--fg2); } .k-dim { color: var(--dim); } .k-line { color: var(--line); }
+
+.fill { flex: 1 1 0; min-width: 1ch; overflow: hidden; white-space: nowrap; }
+.fill::before { content: "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"; }
+.dfill::before { content: "============================================================================================================================================================================================================================================================================================"; }
+
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 6; background: var(--bg); padding-top: 8px; }
+.nav-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; }
+.tab { font: inherit; background: none; border: none; color: var(--fg); padding: 2px 1ch; cursor: pointer; white-space: nowrap; }
+.tab kbd { font: inherit; color: var(--dim); }
+.tab:hover { background: var(--faint); }
+.tab[aria-current="page"] { background: var(--blue); color: var(--blue-fg); font-weight: 700; box-shadow: inset 0 -2px 0 var(--blue-line); }
+.tab[aria-current="page"] kbd { color: var(--k-white); }
+.sp { flex: 1; }
+.mode { white-space: nowrap; }
+.mode::before { content: "[ "; color: var(--dim); } .mode::after { content: " ]"; color: var(--dim); }
+.rule { display: flex; color: var(--fg2); line-height: 1.2; }
+
+.wrap { display: grid; gap: 14px; }
+.top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 3ch; align-items: end; padding-top: 8px; }
+.banner { margin: 0; white-space: pre; line-height: 1.05; font-size: clamp(5px, 1.05vw, 12px); color: var(--fg); }
+.banner .bk { color: var(--dim); }
+.sub { display: grid; gap: 2px; color: var(--dim); min-width: 0; }
+.sub b { color: var(--fg); font-weight: 400; }
+.status { margin: 0; overflow-wrap: anywhere; }
+.status .pr { color: var(--dim); }
+.cursor { display: inline-block; width: .6em; height: 1.05em; vertical-align: -2px; background: var(--fg); }
+@media (max-width: 760px) { .top { grid-template-columns: minmax(0, 1fr); } }
+
+.ptitle { display: flex; white-space: nowrap; overflow: hidden; color: var(--fg2); }
+.ptitle .pt { color: var(--k-white); padding: 0 1ch; font-weight: 700; letter-spacing: .12em; }
+
+.panel { position: relative; min-width: 0; display: flex; flex-direction: column; }
+.panel::before { content: ""; position: absolute; left: calc(.5ch - .5px); right: calc(.5ch - .5px); top: .8em; bottom: .8em;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line); pointer-events: none; }
+.head, .foot { display: flex; white-space: nowrap; color: var(--line); line-height: 1.6; min-width: 0; }
+.head .cmd { color: var(--fg); padding: 0 .5ch; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.head .cmd::before { content: "$ "; color: var(--dim); }
+.head .note { color: var(--dim); padding: 0 .5ch; flex: 0 1000 auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dbl::before { border-left: 3px double var(--fg2); border-right: 3px double var(--fg2); left: calc(.5ch - 1.5px); right: calc(.5ch - 1.5px); }
+.dbl .head, .dbl .foot { color: var(--fg2); }
+.body { padding: 4px 2ch 6px; min-width: 0; flex: 1 1 auto; }
+.desc { margin: 0 0 8px; color: var(--dim); }
+.desc::before { content: "# "; }
+.txt { white-space: pre; overflow-x: auto; }
+.row { display: block; }
+.row:hover { background: var(--blue); }
+
+.btn, .run { font: inherit; background: none; border: none; color: var(--fg); padding: 0 .5ch; cursor: pointer; white-space: nowrap; }
+.btn::before { content: "["; color: var(--dim); } .btn::after { content: "]"; color: var(--dim); }
+.btn kbd { font: inherit; color: var(--k-white); }
+.btn:hover, .run:hover { background: var(--blue); color: var(--blue-fg); }
+.btn[aria-pressed="true"] { background: var(--blue); color: var(--blue-fg); font-weight: 700; }
+.btn:disabled, .run:disabled { color: var(--dim); cursor: default; background: none; }
+.run { font-weight: 700; }
+.run::before { content: "[ "; color: var(--dim); font-weight: 400; } .run::after { content: " ]"; color: var(--dim); font-weight: 400; }
+.in, .sel { font: inherit; background-color: var(--bg); color: var(--fg); border: none; border-bottom: 1px solid var(--fg2); padding: 0 .5ch; max-width: 100%; border-radius: 0; }
+.in::placeholder { color: var(--dim); }
+.ctrls { display: flex; flex-wrap: wrap; gap: 6px 2ch; align-items: center; color: var(--dim); }
+.msg { margin: 8px 0 0; min-height: 1.4em; overflow-wrap: anywhere; } .msg::before { content: "› "; color: var(--dim); }
+
+.key { display: flex; flex-wrap: wrap; gap: 2px 2ch; color: var(--dim); font-size: 12px; }
+.key span { white-space: nowrap; }
+
+.page { display: grid; gap: 14px; }
+.g12 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 2ch; }
+@media (min-width: 1100px) {
+  .g12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+}
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20ch), 1fr)); gap: 6px 2ch; }
+.tile .body { display: grid; padding-block: 0 2px; }
+.tile .head .cmd { color: var(--dim); font-size: 11px; letter-spacing: .08em; }
+.tile .head .cmd::before { content: none; }
+.num { font-size: 2.1em; line-height: 1.1; color: var(--k-white); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.num.small { font-size: 1.25em; line-height: 1.7; }
+.cap { color: var(--dim); font-size: 11px; }
+
+/* form: the topic prompt */
+.form { display: grid; gap: 10px; }
+.prompt { display: flex; flex-wrap: wrap; gap: 6px 1ch; align-items: baseline; }
+.prompt .in { flex: 1 1 28ch; min-width: 0; font-size: 1.15em; }
+.opts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 2ch; align-items: baseline; }
+.opts .k { color: var(--fg2); }
+.opts .k::after { content: " :"; color: var(--dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 2px 1ch; }
+.examples { display: flex; flex-wrap: wrap; gap: 4px 1ch; color: var(--dim); }
+
+/* run log */
+.log { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; color: var(--fg2); margin: 0; font: inherit; }
+.log .t { color: var(--dim); }
+
+/* readout */
+.kv { display: grid; min-width: 0; gap: 1px; }
+.kv > span { overflow-wrap: anywhere; }
+.kv .k { color: var(--fg2); display: inline-block; min-width: 10ch; }
+.kv .k::after { content: " :"; color: var(--dim); }
+.hr { color: var(--line); overflow: hidden; white-space: nowrap; }
+
+.cmdtbl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 2ch; align-items: baseline; }
+.cmdtbl code { color: var(--fg); font-family: var(--mono); overflow-wrap: anywhere; }
+.what { display: block; color: var(--dim); font-size: 12px; }
+.url { display: block; overflow-wrap: anywhere; color: var(--fg); user-select: all; }
+
+.table-box { max-height: 440px; overflow: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table th { position: sticky; top: 0; background: var(--bg); color: var(--dim); text-align: left; font-weight: 400; font-size: 11px;
+  letter-spacing: .06em; padding: 0 1ch 2px; border-bottom: 1px dashed var(--line); text-transform: uppercase; white-space: nowrap; }
+.table td { padding: 1px 1ch; vertical-align: top; }
+.table td:first-child::before { content: "› "; color: var(--line); }
+.table .n { text-align: right; }
+.table .nw { white-space: nowrap; }
+.table tbody tr:hover { background: var(--blue); color: var(--blue-fg); }
+.table tbody tr:hover .k-dim, .table tbody tr:hover .k-line { color: var(--blue-fg); }
+.table .sm { color: var(--dim); font-size: 11px; display: block; }
+.empty { color: var(--dim); padding: 6px 0; }
+
+.list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.list li { overflow-wrap: anywhere; }
+.list li::before { content: "|-- "; color: var(--line); }
+.list li:last-child::before { content: "`-- "; }
+.prose { max-width: 78ch; display: grid; gap: 8px; color: var(--fg2); }
+.prose p { margin: 0; }
+.prose h3 { margin: 6px 0 0; font-size: inherit; color: var(--fg); }
+.prose h3::before { content: "## "; color: var(--dim); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<nav class="nav" aria-label="Pages">
+  <div class="nav-row">
+    <button class="tab" type="button" data-page="build" aria-current="page"><kbd>1</kbd> BUILD</button><span class="k-line">|</span>
+    <button class="tab" type="button" data-page="library"><kbd>2</kbd> LIBRARY</button><span class="k-line">|</span>
+    <button class="tab" type="button" data-page="subscribe"><kbd>3</kbd> SUBSCRIBE</button>
+    <span class="sp"></span><span class="mode" id="mode">CHECKING</span>
+  </div>
+  <div class="rule"><span class="fill dfill"></span></div>
+</nav>
+
+<div class="wrap">
+<header class="top">
+<pre class="banner" aria-label="CalGen"><span class="bk">  +=+ i C A L   G E N E R A T O R ===================+</span>
+ ██████╗ █████╗ ██╗      ██████╗ ███████╗███╗   ██╗
+██╔════╝██╔══██╗██║     ██╔════╝ ██╔════╝████╗  ██║
+██║     ███████║██║     ██║  ███╗█████╗  ██╔██╗ ██║
+██║     ██╔══██║██║     ██║   ██║██╔══╝  ██║╚██╗██║
+╚██████╗██║  ██║███████╗╚██████╔╝███████╗██║ ╚████║
+ ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝
+<span class="bk">  +==================================== .ics · webcal =+</span></pre>
+  <div class="sub">
+    <span>search <b id="s-search">checking…</b> · claude <b id="s-claude">checking…</b> · saved <b id="s-saved">0</b></span>
+    <span>keys <b>1 2 3</b> pages · <b>/</b> new topic · <b>D</b> download .ics</span>
+    <p class="status"><span class="pr">root@calgen:~$</span> <span id="prompt-line">calgen --topic "Formula 1" --year 2027</span> <span class="cursor" aria-hidden="true"></span></p>
+  </div>
+</header>
+
+<!-- ================= PAGE 1 · BUILD ================= -->
+<section class="page" id="build" aria-label="Build">
+<div class="ptitle"><span>▓▒░ </span><span class="pt">BUILD</span><span> ░▒▓ </span><span class="fill dfill"></span></div>
+
+<div class="g12">
+<section class="panel dbl c7">
+  <div class="head"><span>#=[</span><span class="cmd">calgen --search</span><span>]=</span><span class="note">type an event, series or topic</span><span class="fill dfill"></span><span>#</span></div>
+  <div class="body">
+    <form class="form" id="form" autocomplete="off">
+      <label class="prompt"><span class="k-dim">topic &gt;</span>
+        <input class="in" id="topic" name="topic" placeholder="World Badminton Championships" aria-label="Event or topic"></label>
+      <div class="opts">
+        <span class="k">season</span>
+        <span class="chips" id="years" role="group" aria-label="Season"></span>
+        <span class="k">detail</span>
+        <span class="chips" role="group" aria-label="Detail">
+          <button class="btn" type="button" data-detail="main" aria-pressed="true">main events</button>
+          <button class="btn" type="button" data-detail="all" aria-pressed="false">every session</button>
+        </span>
+      </div>
+      <div class="ctrls">
+        <button class="run" type="submit" id="go">▶ SEARCH &amp; BUILD</button>
+        <button class="btn" type="button" id="stop" hidden>stop</button>
+        <span id="hint">searches the web, reads the official schedule, builds an .ics</span>
+      </div>
+      <div class="examples"><span>try ›</span>
+        <button class="btn" type="button" data-try="World Badminton Championships">World Badminton Championships</button>
+        <button class="btn" type="button" data-try="Wimbledon">Wimbledon</button>
+        <button class="btn" type="button" data-try="Tour de France stages">Tour de France stages</button>
+        <button class="btn" type="button" data-try="Six Nations rugby">Six Nations rugby</button>
+      </div>
+    </form>
+    <p class="msg k-dim" id="msg" aria-live="polite">showing example · Formula 1 2027</p>
+  </div>
+  <div class="foot"><span>#</span><span class="fill dfill"></span><span>#</span></div>
+</section>
+
+<section class="panel c5">
+  <div class="head"><span>+-[</span><span class="cmd">tail -f research.log</span><span>]-</span><span class="note" id="log-note">idle</span><span class="fill"></span><span>+</span></div>
+  <div class="body"><pre class="log" id="log" aria-live="polite"><span class="t">--:--</span> example loaded from the library
+<span class="t">--:--</span> press SEARCH &amp; BUILD to research a new topic</pre></div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+
+<div class="c12 tiles" id="tiles" aria-label="Calendar summary"></div>
+
+<section class="panel c8">
+  <div class="head"><span>+-[</span><span class="cmd" id="tbl-cmd">cat events</span><span>]-</span><span class="note" id="tbl-note"></span><span class="fill"></span><span>+</span></div>
+  <div class="body">
+    <div class="key" aria-label="Colour key" style="margin-bottom:6px"><span>key ›</span><span class="k-cyan">█ kind</span><span class="k-white">█ totals</span><span class="k-orange">█ needs checking</span><span class="k-red">█ problem</span></div>
+    <div class="table-box"><table class="table">
+      <thead><tr><th>Date</th><th>Event</th><th>Where</th><th>Kind</th><th>Status</th></tr></thead>
+      <tbody id="events"></tbody>
+    </table></div>
+  </div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+
+<section class="panel dbl c4">
+  <div class="head"><span>#=[</span><span class="cmd">export</span><span>]=</span><span class="note">file and feed</span><span class="fill dfill"></span><span>#</span></div>
+  <div class="body">
+    <div class="cmdtbl" id="export"></div>
+    <p class="msg k-dim" id="xmsg" aria-live="polite">ready</p>
+  </div>
+  <div class="foot"><span>#</span><span class="fill dfill"></span><span>#</span></div>
+</section>
+
+<section class="panel c7">
+  <div class="head"><span>+-[</span><span class="cmd">cal --months</span><span>]-</span><span class="note">events per month</span><span class="fill"></span><span>+</span></div>
+  <div class="body"><div class="txt" id="months"></div></div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+
+<section class="panel c5">
+  <div class="head"><span>+-[</span><span class="cmd">cat sources caveats</span><span>]-</span><span class="note">where the dates came from</span><span class="fill"></span><span>+</span></div>
+  <div class="body" id="sources"></div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+</div>
+</section>
+
+<!-- ================= PAGE 2 · LIBRARY ================= -->
+<section class="page" id="library" aria-label="Library" hidden>
+<div class="ptitle"><span>▓▒░ </span><span class="pt">LIBRARY</span><span> ░▒▓ </span><span class="fill dfill"></span></div>
+<section class="panel">
+  <div class="head"><span>+-[</span><span class="cmd">ls ~/calendars</span><span>]-</span><span class="note">examples, then everything you saved</span><span class="fill"></span><span>+</span></div>
+  <div class="body">
+    <div class="table-box"><table class="table">
+      <thead><tr><th>Calendar</th><th class="n">Events</th><th>Span</th><th>Feed</th><th>Built</th><th></th></tr></thead>
+      <tbody id="lib"></tbody>
+    </table></div>
+    <p class="msg k-dim" id="lmsg" aria-live="polite">open a calendar to view, download or subscribe</p>
+  </div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+</section>
+
+<!-- ================= PAGE 3 · SUBSCRIBE ================= -->
+<section class="page" id="subscribe" aria-label="Subscribe" hidden>
+<div class="ptitle"><span>▓▒░ </span><span class="pt">SUBSCRIBE</span><span> ░▒▓ </span><span class="fill dfill"></span></div>
+<div class="g12">
+<section class="panel dbl c5">
+  <div class="head"><span>#=[</span><span class="cmd">subscribe</span><span>]=</span><span class="note" id="sub-note"></span><span class="fill dfill"></span><span>#</span></div>
+  <div class="body"><div class="cmdtbl" id="sub-actions"></div><p class="msg k-dim" id="smsg" aria-live="polite">ready</p></div>
+  <div class="foot"><span>#</span><span class="fill dfill"></span><span>#</span></div>
+</section>
+<section class="panel c7">
+  <div class="head"><span>+-[</span><span class="cmd">man calgen</span><span>]-</span><span class="note">file vs subscription</span><span class="fill"></span><span>+</span></div>
+  <div class="body"><div class="prose">
+    <h3>Live feed (subscription)</h3>
+    <p>When the search finds a public <code>.ics</code> feed published by the organiser or a calendar site, subscribing to it keeps your calendar in step: changed dates and new sessions arrive on their own. The SUBSCRIBE panel gives you the <code>webcal://</code> address and a Google Calendar link.</p>
+    <p>Apple Calendar: File › New Calendar Subscription, paste the address, set auto-refresh to every day. iPhone: Settings › Apps › Calendar › Calendar Accounts › Add Account › Other › Add Subscribed Calendar.</p>
+    <h3>Generated file (.ics)</h3>
+    <p>When no public feed exists, CalGen builds the file itself from the dates it found. Open it and your calendar app adds every event. Each event keeps the same ID between builds, so if dates change, rebuild here and open the new file: Apple Calendar and Outlook update the existing events instead of making copies.</p>
+    <p>To turn a generated file into a subscription, upload it somewhere with a public address (a GitHub gist's raw link or a web host) and subscribe to that address.</p>
+    <h3>Status colours</h3>
+    <p><span class="k-fg">[ OK ]</span> published by the organiser · <span class="k-orange">[PROV]</span> provisional or subject to contract · <span class="k-red">[ TBA ]</span> not announced yet, so nothing is added to the file.</p>
+  </div></div>
+  <div class="foot"><span>+</span><span class="fill"></span><span>+</span></div>
+</section>
+</div>
+</section>
+</div>
+
+<script>
+/* ---------- built-in examples (researched 2026-11-18) ---------- */
+const wk = (title, fri, sun, location, kind, status, note) => ({ title, start: fri, end: sun, location, kind, status: status || 'confirmed', note: note || '' });
+const ME = 'conditional on the Middle East situation';
+const EXAMPLES = [
+  { id: 'ex-f1-2027', example: true, name: 'Formula 1 · 2027', topic: 'Formula 1', season: '2027', built: '2026-11-18', mode: 'web',
+    summary: '24 grands prix and pre-season testing, Bahrain to Abu Dhabi. Ten sprint weekends.',
+    events: [
+      wk('Pre-season testing', '2027-02-24', '2027-02-27', 'Bahrain International Circuit, Sakhir', 'testing'),
+      wk('Bahrain Grand Prix', '2027-03-12', '2027-03-14', 'Sakhir, Bahrain', 'sprint wknd', 'provisional', ME),
+      wk('Saudi Arabian Grand Prix', '2027-03-19', '2027-03-21', 'Jeddah, Saudi Arabia', 'grand prix', 'provisional', ME),
+      wk('Australian Grand Prix', '2027-04-02', '2027-04-04', 'Melbourne, Australia', 'sprint wknd'),
+      wk('Japanese Grand Prix', '2027-04-09', '2027-04-11', 'Suzuka, Japan', 'sprint wknd'),
+      wk('Chinese Grand Prix', '2027-04-16', '2027-04-18', 'Shanghai, China', 'grand prix'),
+      wk('Miami Grand Prix', '2027-04-30', '2027-05-02', 'Miami, USA', 'grand prix'),
+      wk('Canadian Grand Prix', '2027-05-21', '2027-05-23', 'Montréal, Canada', 'sprint wknd'),
+      wk('Monaco Grand Prix', '2027-06-04', '2027-06-06', 'Monte Carlo, Monaco', 'sprint wknd', '', 'first Monaco sprint'),
+      wk('Portuguese Grand Prix', '2027-06-18', '2027-06-20', 'Algarve International Circuit, Portimão', 'grand prix'),
+      wk('British Grand Prix', '2027-07-02', '2027-07-04', 'Silverstone, UK', 'sprint wknd'),
+      wk('Austrian Grand Prix', '2027-07-09', '2027-07-11', 'Spielberg, Austria', 'grand prix'),
+      wk('Belgian Grand Prix', '2027-07-23', '2027-07-25', 'Spa-Francorchamps, Belgium', 'grand prix'),
+      wk('Hungarian Grand Prix', '2027-07-30', '2027-08-01', 'Budapest, Hungary', 'grand prix'),
+      wk('Italian Grand Prix', '2027-09-03', '2027-09-05', 'Monza, Italy', 'sprint wknd'),
+      wk('Spanish Grand Prix', '2027-09-10', '2027-09-12', 'Madrid, Spain', 'grand prix'),
+      wk('Azerbaijan Grand Prix', '2027-09-24', '2027-09-26', 'Baku, Azerbaijan', 'grand prix'),
+      wk('Turkish Grand Prix', '2027-10-01', '2027-10-03', 'Istanbul Park, Türkiye', 'grand prix'),
+      wk('Singapore Grand Prix', '2027-10-08', '2027-10-10', 'Marina Bay, Singapore', 'grand prix'),
+      wk('United States Grand Prix', '2027-10-22', '2027-10-24', 'Austin, USA', 'grand prix'),
+      wk('Mexico City Grand Prix', '2027-10-29', '2027-10-31', 'Mexico City, Mexico', 'grand prix'),
+      wk('São Paulo Grand Prix', '2027-11-05', '2027-11-07', 'Interlagos, Brazil', 'sprint wknd'),
+      wk('Las Vegas Grand Prix', '2027-11-19', '2027-11-21', 'Las Vegas, USA', 'grand prix', '', 'race is Saturday night local time'),
+      wk('Qatar Grand Prix', '2027-12-03', '2027-12-05', 'Lusail, Qatar', 'sprint wknd', 'provisional', ME),
+      wk('Abu Dhabi Grand Prix', '2027-12-10', '2027-12-12', 'Yas Marina, Abu Dhabi', 'sprint wknd', 'provisional', ME),
+    ],
+    sources: [
+      { title: 'F1 unveils 2027 calendar · Formula One History', url: 'https://www.formulaonehistory.com/f1-unveils-2027-calendar/' },
+      { title: 'Complete F1 2027 calendar · PlanetF1', url: 'https://www.planetf1.com/news/f1-2027-calendar-schedule-race-dates' },
+    ],
+    feeds: [{ label: 'Better F1 Calendar · grands prix', url: 'https://files-f1.motorsportcalendars.com/f1-calendar_gp.ics', checked: '2026-11-18 · answering, still lists 2026 races until it rolls over' }],
+    caveats: ['Bahrain, Saudi Arabia, Qatar and Abu Dhabi are conditional on the Middle East situation.', 'Weekends are all-day events, Friday to Sunday. Session times are not out yet.'] },
+
+  { id: 'ex-motogp-2027', example: true, name: 'MotoGP · 2027', topic: 'MotoGP', season: '2027', built: '2026-11-18', mode: 'web',
+    summary: 'Provisional FIM calendar: 22 grands prix, Thailand to Valencia. First year of the 850cc rules.',
+    events: [
+      wk('Thailand Grand Prix', '2027-03-05', '2027-03-07', 'Chang International Circuit, Buriram', 'grand prix'),
+      wk('Qatar Grand Prix', '2027-03-12', '2027-03-14', 'Lusail International Circuit', 'grand prix', 'provisional', 'possible swap with Indonesia'),
+      wk('Brazil Grand Prix', '2027-04-02', '2027-04-04', 'Autódromo Ayrton Senna, Goiânia', 'grand prix'),
+      wk('Argentina Grand Prix', '2027-04-09', '2027-04-11', 'Autódromo Oscar y Juan Gálvez, Buenos Aires', 'grand prix', 'provisional', 'subject to homologation'),
+      wk('Grand Prix of the Americas', '2027-04-23', '2027-04-25', 'Circuit of the Americas, Austin', 'grand prix', 'provisional', 'subject to contract'),
+      wk('Spanish Grand Prix', '2027-05-07', '2027-05-09', 'Circuito de Jerez-Ángel Nieto', 'grand prix'),
+      wk('French Grand Prix', '2027-05-14', '2027-05-16', 'Le Mans, France', 'grand prix'),
+      wk('Italian Grand Prix', '2027-05-28', '2027-05-30', 'Mugello, Italy', 'grand prix'),
+      wk('Catalan Grand Prix', '2027-06-11', '2027-06-13', 'Circuit de Barcelona-Catalunya', 'grand prix'),
+      wk('Dutch TT', '2027-06-25', '2027-06-27', 'TT Circuit Assen, Netherlands', 'grand prix'),
+      wk('German Grand Prix', '2027-07-09', '2027-07-11', 'Sachsenring, Germany', 'grand prix'),
+      wk('Czech Grand Prix', '2027-07-16', '2027-07-18', 'Automotodrom Brno, Czechia', 'grand prix'),
+      wk('British Grand Prix', '2027-08-13', '2027-08-15', 'Silverstone, UK', 'grand prix'),
+      wk('Austrian Grand Prix', '2027-08-27', '2027-08-29', 'Red Bull Ring, Spielberg', 'grand prix'),
+      wk('San Marino Grand Prix', '2027-09-10', '2027-09-12', 'Misano World Circuit, Italy', 'grand prix'),
+      wk('Aragón Grand Prix', '2027-09-17', '2027-09-19', 'MotorLand Aragón, Alcañiz', 'grand prix'),
+      wk('Portuguese Grand Prix', '2027-10-01', '2027-10-03', 'Algarve International Circuit, Portimão', 'grand prix'),
+      wk('Japanese Grand Prix', '2027-10-15', '2027-10-17', 'Mobility Resort Motegi, Japan', 'grand prix'),
+      wk('Malaysian Grand Prix', '2027-10-22', '2027-10-24', 'Sepang International Circuit', 'grand prix'),
+      wk('Indonesian Grand Prix', '2027-10-29', '2027-10-31', 'Mandalika, Lombok', 'grand prix', 'provisional', 'possible swap with Qatar'),
+      wk('Australian Grand Prix', '2027-11-12', '2027-11-14', 'Adelaide Street Circuit', 'grand prix', 'provisional', 'subject to homologation'),
+      wk('Valencia Grand Prix', '2027-11-26', '2027-11-28', 'Circuit Ricardo Tormo, Cheste', 'grand prix'),
+    ],
+    sources: [
+      { title: '2027 FIM MotoGP calendar · CycleNews (FIM release)', url: 'https://www.cyclenews.com/2026/09/article/2027-fim-motogp-world-championship-calendar/' },
+      { title: 'MotoGP 2027 calendar revealed · The Race', url: 'https://www.the-race.com/motogp/motogp-2027-calendar-revealed-buenos-aires-adelaide-dates/' },
+      { title: 'MotoGP calendar 2027 · RTR Sports', url: 'https://rtrsports.com/en/blog/motogp-calendar-2027/' },
+    ],
+    feeds: [],
+    caveats: ['The whole calendar is provisional (FIM, 25 Sep 2026).', 'The official MotoGP calendar feed needs an email sign-up, so it is not listed as an open feed.'] },
+];
+
+/* ============ PURE HELPERS (tested outside the page) ============ */
+const CAL = (() => {
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z$/;
+  const slug = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'x';
+  const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const validDate = (s) => ISO.test(s) && !isNaN(new Date(s + 'T00:00:00Z')) && new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) === s;
+  const icsEsc = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  const enc = new TextEncoder();
+  function fold(line) { // RFC 5545: max 75 octets per line, continuation starts with a space
+    const out = []; let cur = '', bytes = 0, limit = 75;
+    for (const ch of line) {
+      const b = enc.encode(ch).length;
+      if (bytes + b > limit) { out.push(cur); cur = ' '; bytes = 1; limit = 75; }
+      cur += ch; bytes += b;
+    }
+    out.push(cur); return out.join('\r\n');
+  }
+  const stamp = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const utcBasic = (s) => stamp(new Date(s));
+
+  /* Clean whatever Claude returned into a calendar we can trust */
+  function normalise(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const dropped = [];
+    const events = (Array.isArray(r.events) ? r.events : []).map((e) => {
+      e = e || {};
+      const ev = { title: String(e.title || '').trim().slice(0, 160), start: String(e.start || '').trim(), end: String(e.end || e.start || '').trim(),
+        start_utc: e.start_utc ? String(e.start_utc).trim() : '', end_utc: e.end_utc ? String(e.end_utc).trim() : '',
+        location: String(e.location || '').trim().slice(0, 160), kind: String(e.kind || 'event').trim().toLowerCase().slice(0, 18),
+        status: /prov|tent|subject|tbc|expect/i.test(String(e.status || '')) ? 'provisional' : /tba|unannounced|not announced/i.test(String(e.status || '')) ? 'tba' : 'confirmed',
+        note: String(e.note || '').trim().slice(0, 200), source: String(e.source || '').trim().slice(0, 400) };
+      if (!ev.title) { dropped.push('an event with no name'); return null; }
+      if (ev.status === 'tba') return ev;
+      if (!validDate(ev.start)) { dropped.push(`${ev.title} (no real date)`); return null; }
+      if (!validDate(ev.end) || ev.end < ev.start) ev.end = ev.start;
+      if (ev.start_utc && !UTC.test(ev.start_utc)) ev.start_utc = '';
+      if (ev.end_utc && (!UTC.test(ev.end_utc) || !ev.start_utc || ev.end_utc <= ev.start_utc)) ev.end_utc = '';
+      return ev;
+    }).filter(Boolean).sort((a, b) => (a.status === 'tba') - (b.status === 'tba') || (a.start_utc || a.start).localeCompare(b.start_utc || b.start));
+    const httpOk = (u) => /^https?:\/\/[^\s]+$/i.test(String(u || ''));
+    const feedOk = (u) => /^(https?|webcal):\/\/[^\s]+$/i.test(String(u || ''));
+    return {
+      name: String(r.name || '').trim().slice(0, 80), summary: String(r.summary || '').trim().slice(0, 300),
+      events, dropped,
+      sources: (Array.isArray(r.sources) ? r.sources : []).filter((s) => s && httpOk(s.url)).slice(0, 8).map((s) => ({ title: String(s.title || s.url).slice(0, 120), url: String(s.url) })),
+      feeds: (Array.isArray(r.feeds) ? r.feeds : []).filter((f) => f && feedOk(f.url)).slice(0, 4).map((f) => ({ label: String(f.label || 'calendar feed').slice(0, 80), url: String(f.url).replace(/^webcal:/i, 'https:'), checked: String(f.seen_on ? 'found on ' + f.seen_on : 'found by search, not checked').slice(0, 200) })),
+      caveats: (Array.isArray(r.caveats) ? r.caveats : []).map(String).filter(Boolean).slice(0, 6).map((s) => s.slice(0, 240)),
+    };
+  }
+
+  /* Pull the JSON object out of a model answer (tolerates ``` fences and chatter) */
+  function parseAnswer(text) {
+    const t = String(text || '');
+    const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const body = fenced ? fenced[1] : t;
+    const a = body.indexOf('{'), b = body.lastIndexOf('}');
+    if (a < 0 || b <= a) throw new Error('no JSON in the answer');
+    return JSON.parse(body.slice(a, b + 1));
+  }
+
+  function buildICS(cal, now = new Date()) {
+    const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CalGen//Calendar Generator//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+      'X-WR-CALNAME:' + icsEsc(cal.name), 'X-WR-CALDESC:' + icsEsc(cal.summary || ''), 'REFRESH-INTERVAL;VALUE=DURATION:P1D', 'X-PUBLISHED-TTL:P1D'];
+    const seen = {};
+    const calSlug = slug(cal.topic || cal.name) + '-' + slug(cal.season || '');
+    for (const e of cal.events) {
+      if (e.status === 'tba') continue;
+      let uid = `${calSlug}-${slug(e.title)}-${e.start.slice(0, 4)}`;
+      seen[uid] = (seen[uid] || 0) + 1; if (seen[uid] > 1) uid += '-' + seen[uid];
+      const desc = [e.note, e.status === 'provisional' ? 'Provisional: check before you travel.' : '', e.source ? 'Source: ' + e.source : '', 'Made with CalGen.'].filter(Boolean).join('\n');
+      L.push('BEGIN:VEVENT', 'UID:' + uid + '@calgen', 'DTSTAMP:' + stamp(now));
+      if (e.start_utc) {
+        L.push('DTSTART:' + utcBasic(e.start_utc));
+        L.push('DTEND:' + utcBasic(e.end_utc || new Date(new Date(e.start_utc).getTime() + 2 * 3600e3).toISOString()));
+      } else {
+        L.push('DTSTART;VALUE=DATE:' + e.start.replace(/-/g, ''), 'DTEND;VALUE=DATE:' + addDays(e.end, 1).replace(/-/g, ''), 'TRANSP:TRANSPARENT');
+      }
+      L.push('SUMMARY:' + icsEsc(e.title));
+      if (e.location) L.push('LOCATION:' + icsEsc(e.location));
+      L.push('DESCRIPTION:' + icsEsc(desc), 'CATEGORIES:' + icsEsc(e.kind), 'STATUS:' + (e.status === 'provisional' ? 'TENTATIVE' : 'CONFIRMED'), 'END:VEVENT');
+    }
+    L.push('END:VCALENDAR');
+    return L.map(fold).join('\r\n') + '\r\n';
+  }
+  return { slug, addDays, validDate, normalise, parseAnswer, buildICS, fold };
+})();
+/* ============ END PURE HELPERS ============ */
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pad = (s, n) => { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s + ' '.repeat(n - s.length); };
+const lpad = (s, n) => ' '.repeat(Math.max(0, n - String(s).length)) + s;
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtD = (iso) => { const [y, m, d] = iso.split('-'); return `${+d} ${MON[+m - 1]}`; };
+const range = (e) => e.status === 'tba' ? 'TBA' : e.start === e.end ? fmtD(e.start) : (e.start.slice(5, 7) === e.end.slice(5, 7) ? `${+e.start.slice(8)}–${fmtD(e.end)}` : `${fmtD(e.start)} – ${fmtD(e.end)}`);
+const timeStr = (e) => e.start_utc ? new Date(e.start_utc).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '';
+const today = new Date().toISOString().slice(0, 10);
+const STATUS = { confirmed: '<span class="k-fg">[ OK ]</span>', provisional: '<span class="k-orange">[PROV]</span>', tba: '<span class="k-red">[ TBA ]</span>' };
+
+/* ---------- state ---------- */
+let current = EXAMPLES[0];
+let saved = [];         // from db
+let detail = 'main';
+let season = 'next';
+let caps = { sample: null, mcp: null, downloads: null, db: null, browser: false, tools: false };
+let running = null;     // AbortController
+
+/* ---------- render ---------- */
+function tile(t, n, c, cls = '', small = false) {
+  return `<div class="panel tile"><div class="head"><span>+-[</span><span class="cmd">${t}</span><span>]-</span><span class="fill"></span><span>+</span></div><div class="body"><span class="num ${small ? 'small ' : ''}${cls}">${n}</span><span class="cap">${c}</span></div><div class="foot"><span>+</span><span class="fill"></span><span>+</span></div></div>`;
+}
+function render() {
+  const c = current, dated = c.events.filter((e) => e.status !== 'tba');
+  const prov = dated.filter((e) => e.status === 'provisional').length, tba = c.events.length - dated.length;
+  const next = dated.find((e) => e.end >= today);
+  const span = dated.length ? `${fmtD(dated[0].start)} ${dated[0].start.slice(0, 4)} → ${fmtD(dated[dated.length - 1].end)} ${dated[dated.length - 1].end.slice(0, 4)}` : 'no dates yet';
+  $('#prompt-line').textContent = `calgen --topic "${c.topic}" --year ${c.season}${c.example ? '  # example' : ''}`;
+  $('#tiles').innerHTML =
+    tile('EVENTS', dated.length, 'go into the .ics', dated.length ? '' : 'k-red') +
+    tile('PROVISIONAL', prov, 'marked tentative', prov ? 'k-orange' : '') +
+    tile('NOT ANNOUNCED', tba, 'left out of the file', tba ? 'k-red' : '') +
+    tile('NEXT UP', next ? esc(range(next)) : '—', next ? esc(next.title) : 'nothing upcoming', '', true) +
+    tile('LIVE FEED', c.feeds.length ? 'yes' : 'no', c.feeds.length ? 'subscribe to stay updated' : 'download the file instead', c.feeds.length ? '' : 'k-orange', true);
+  $('#tbl-cmd').textContent = `cat ${CAL.slug(c.name)}.ics`;
+  $('#tbl-note').textContent = c.summary || '';
+  $('#events').innerHTML = c.events.length ? c.events.map((e) => {
+    const past = e.status !== 'tba' && e.end < today;
+    return `<tr class="${past ? 'k-dim' : ''}"><td class="nw">${esc(range(e))}${e.status !== 'tba' ? ` <span class="k-dim">${e.start.slice(0, 4)}</span>` : ''}${e.start_utc ? `<span class="sm">${esc(timeStr(e))}</span>` : ''}</td>` +
+      `<td>${esc(e.title)}${e.note ? `<span class="sm ${e.status === 'confirmed' ? '' : e.status === 'tba' ? 'k-red' : 'k-orange'}">${esc(e.note)}</span>` : ''}</td>` +
+      `<td>${esc(e.location)}</td><td class="k-cyan nw">${esc(e.kind)}</td><td class="nw">${STATUS[e.status]}</td></tr>`;
+  }).join('') : `<tr><td colspan="5" class="k-red">no dated events found · see caveats</td></tr>`;
+  renderMonths(dated); renderSources(); renderExport(); renderSubscribe();
+}
+function renderMonths(dated) {
+  if (!dated.length) { $('#months').innerHTML = '<span class="k-dim"># nothing to chart yet</span>'; return; }
+  const counts = {}; dated.forEach((e) => { const k = e.start.slice(0, 7); counts[k] = (counts[k] || 0) + 1; });
+  const keys = Object.keys(counts).sort(); const first = keys[0], last = keys[keys.length - 1];
+  const months = []; let y = +first.slice(0, 4), m = +first.slice(5, 7);
+  while (`${y}-${String(m).padStart(2, '0')}` <= last && months.length < 24) { months.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; } }
+  const max = Math.max(...Object.values(counts)), W = 24;
+  $('#months').innerHTML = months.map((k) => {
+    const v = counts[k] || 0, n = Math.round(v / max * W);
+    return `<span class="row"><span class="k-dim">${MON[+k.slice(5) - 1]} ${k.slice(2, 4)}</span> <span class="${v === max ? 'k-white' : 'k-fg'}">${'▇'.repeat(n)}</span><span class="k-line">${'░'.repeat(W - n)}</span> <b>${lpad(v, 2)}</b></span>`;
+  }).join('') + `<span class="k-line">${'-'.repeat(W + 10)}</span>\n<span class="k-dim">total </span>${' '.repeat(W)}<b>${lpad(dated.length, 4)}</b>`;
+}
+function renderSources() {
+  const c = current;
+  const src = c.sources.length ? `<ul class="list">${c.sources.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a></li>`).join('')}</ul>` : '<p class="k-red" style="margin:0"># no sources recorded</p>';
+  const cav = (c.caveats || []).map((t) => `<li class="k-orange">${esc(t)}</li>`).join('') + (c.dropped || []).map((t) => `<li class="k-red">dropped: ${esc(t)}</li>`).join('');
+  const mode = c.mode === 'memory' ? `<p class="k-orange" style="margin:0 0 6px"># built from Claude's memory, not a live search · check every date</p>` : '';
+  $('#sources').innerHTML = mode + `<p class="desc">sources</p>${src}` + (cav ? `<p class="desc" style="margin-top:10px">caveats</p><ul class="list">${cav}</ul>` : '');
+}
+function feedRows(prefix) {
+  const c = current; if (!c.feeds.length) return '';
+  return c.feeds.map((f, i) => {
+    const web = f.url.replace(/^https?:/i, 'webcal:');
+    const g = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(web);
+    return `<button class="run" type="button" data-act="copyfeed" data-i="${i}" data-out="${prefix}">▶ COPY FEED</button>` +
+      `<span><code>${esc(f.label)}</code><span class="url">${esc(web)}</span><span class="what">${esc(f.checked)} · <a href="${esc(g)}" target="_blank" rel="noopener">add to Google Calendar</a></span></span>`;
+  }).join('');
+}
+function renderExport() {
+  const c = current, n = c.events.filter((e) => e.status !== 'tba').length;
+  $('#export').innerHTML =
+    `<button class="run" type="button" data-act="download" ${n ? '' : 'disabled'}>▶ DOWNLOAD .ICS</button>` +
+    `<span><code>${esc(CAL.slug(c.name))}.ics</code><span class="what">${n} events · opens in Apple Calendar, Outlook or Google</span></span>` +
+    `<button class="run" type="button" data-act="copyics" ${n ? '' : 'disabled'}>▶ COPY ICS</button>` +
+    `<span><code>text/calendar</code><span class="what">paste into a file or a gist yourself</span></span>` +
+    (c.example || c.id ? '' : `<button class="run" type="button" data-act="save">▶ SAVE</button><span><code>~/calendars</code><span class="what">keep it in the library</span></span>`) +
+    (c.feeds.length ? feedRows('xmsg') : `<span class="k-orange">no feed</span><span class="what">no public feed found · subscribe options are on page 3</span>`);
+}
+function renderSubscribe() {
+  const c = current;
+  $('#sub-note').textContent = c.name;
+  $('#sub-actions').innerHTML = c.feeds.length ? feedRows('smsg') :
+    `<span class="k-orange">[WAIT]</span><span>no public feed found for ${esc(c.name)}<span class="what">download the .ics on page 1 and open it, or host it and subscribe to your copy</span></span>` +
+    `<button class="run" type="button" data-act="download">▶ DOWNLOAD .ICS</button><span><code>${esc(CAL.slug(c.name))}.ics</code></span>`;
+}
+function renderLibrary() {
+  const all = [...EXAMPLES, ...saved];
+  $('#s-saved').textContent = saved.length;
+  $('#lib').innerHTML = all.map((c) => {
+    const d = c.events.filter((e) => e.status !== 'tba');
+    const span = d.length ? `${fmtD(d[0].start)} → ${fmtD(d[d.length - 1].end)} ${d[d.length - 1].end.slice(0, 4)}` : '<span class="k-red">no dates</span>';
+    return `<tr><td>${esc(c.name)}${c.example ? ' <span class="k-dim">example</span>' : ''}</td><td class="n"><b>${d.length}</b></td><td class="nw">${span}</td>` +
+      `<td>${c.feeds.length ? '<span class="k-fg">[ OK ]</span>' : '<span class="k-orange">[NONE]</span>'}</td><td class="nw k-dim">${esc(c.built || '')}</td>` +
+      `<td class="nw"><button class="btn" type="button" data-act="open" data-id="${esc(c.id)}">open</button>${c.example ? '' : ` <button class="btn" type="button" data-act="del" data-id="${esc(c.id)}">delete</button>`}</td></tr>`;
+  }).join('');
+}
+
+/* ---------- log ---------- */
+function log(text, cls = '') {
+  const t = new Date().toTimeString().slice(0, 5);
+  const el = $('#log'); el.insertAdjacentHTML('beforeend', `\n<span class="t">${t}</span> <span class="${cls}">${esc(text)}</span>`); el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- browser tools (Claude app's built-in browser) ---------- */
+let lane = Promise.resolve();
+const serial = (fn) => { const p = lane.then(fn, fn); lane = p.catch(() => {}); return p; };
+const textOf = (r) => typeof r.payload === 'string' ? r.payload : (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n') || JSON.stringify(r.payload || '');
+async function browse(url, max, signal) {
+  return serial(async () => {
+    await caps.mcp.callTool('host:claude_browser', 'navigate', { url }, { signal });
+    const r = await caps.mcp.callTool('host:claude_browser', 'get_page_text', { max_chars: max }, { signal });
+    return textOf(r).slice(0, max);
+  });
+}
+async function webSearch(q, signal) {
+  log('search  ' + q);
+  const t = await browse('https://lite.duckduckgo.com/lite/?q=' + encodeURIComponent(q), 9000, signal);
+  return t.length > 300 ? t : browse('https://www.bing.com/search?q=' + encodeURIComponent(q), 9000, signal);
+}
+function mcpErr(e) {
+  const c = e && e.code;
+  if (c === 'server_not_connected' || c === 'not_granted' || c === 'capability_disabled') return 'the built-in browser only answers when this page is open in the Claude desktop app';
+  if (c === 'cancelled') return 'browser step declined or stopped';
+  if (c === 'not_in_manifest') return 'browser access is turned off for this page';
+  return (e && e.message) || String(e);
+}
+
+/* ---------- the research run ---------- */
+function seasonText() {
+  if (season === 'next') return `the next edition or season that has not finished yet (today is ${today})`;
+  return `the ${season} edition or season`;
+}
+function buildPrompt(topic, firstResults) {
+  return `You are CalGen, a careful research assistant that turns real published schedules into calendar events.
+Today is ${today}. The user wants a calendar for: "${topic}", ${seasonText()}.
+Detail level: ${detail === 'all' ? 'every session or stage, with start times when the organiser publishes them' : 'main events only (one entry per event, round, match day or stage), all-day dates'}.
+
+${firstResults ? `Web search results for "${topic} ${season === 'next' ? '' : season} schedule dates" (raw page text):\n<<<\n${firstResults}\n>>>\n` : 'No web access is available. Use only what you know, mark anything uncertain as provisional, and say in caveats that it was not checked live.'}
+${caps.tools ? `You can call web_search (max 2 times) and read_page (max 4 times). Prefer the organiser's official site (federation, league, tournament). Read at least one page that actually lists the dates before answering.
+Also look for a public subscribable calendar feed (.ics or webcal) for this topic; only report a feed URL you actually saw written on a page.` : ''}
+
+Rules:
+- Never invent or estimate dates. If the edition's dates or venue are not announced, return one event with status "tba", no dates, and a note saying what is known (e.g. "host city to be announced by BWF"). Do not substitute a different event with a similar name.
+- Multi-day events: start = first day, end = last day (inclusive), dates in the venue's local calendar.
+- start_utc / end_utc only when an exact published start time exists, as ISO 8601 UTC ending in Z; otherwise null.
+- status: "confirmed", "provisional" (provisional calendar, subject to contract/homologation) or "tba".
+- kind: one or two lowercase words (e.g. "final", "race", "stage", "group stage", "match").
+- Keep notes short. Each event's "source" is the URL its date came from.
+
+Reply with ONLY this JSON, no prose:
+{"name":"<short calendar name with season, e.g. 'BWF World Championships · 2027'>","summary":"<one line>","events":[{"title":"","start":"YYYY-MM-DD","end":"YYYY-MM-DD","start_utc":null,"end_utc":null,"location":"","kind":"","status":"confirmed","note":"","source":""}],"sources":[{"title":"","url":""}],"feeds":[{"label":"","url":"","seen_on":""}],"caveats":[""]}`;
+}
+const TOOLS = () => [
+  { name: 'web_search', description: 'Search the web. Returns the plain text of a search results page (titles, snippets, URLs). Use short specific queries.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+    async execute(input, ctx) { try { return await webSearch(String(input.query || '').slice(0, 200), ctx.signal); } catch (e) { log('search failed · ' + mcpErr(e), 'k-red'); throw new Error(mcpErr(e)); } } },
+  { name: 'read_page', description: 'Open a URL and return its visible text (first 14000 characters). Use for official schedule pages.',
+    inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+    async execute(input, ctx) {
+      const url = String(input.url || ''); if (!/^https?:\/\//i.test(url)) throw new Error('needs an http(s) URL');
+      log('read    ' + url.replace(/^https?:\/\//, '').slice(0, 70));
+      try { return await browse(url, 14000, ctx.signal); } catch (e) { log('read failed · ' + mcpErr(e), 'k-red'); throw new Error(mcpErr(e)); } } },
+];
+
+async function run(topic) {
+  topic = topic.trim(); if (!topic) { $('#topic').focus(); return; }
+  if (!caps.sample) { $('#msg').innerHTML = '<span class="k-red">searching needs Claude: open this page on claude.ai or in the Claude app</span>'; return; }
+  running = new AbortController(); const signal = running.signal;
+  $('#go').disabled = true; $('#stop').hidden = false; $('#log-note').textContent = 'running';
+  $('#log').innerHTML = `<span class="t">${new Date().toTimeString().slice(0, 5)}</span> calgen --topic "${esc(topic)}" --year ${esc(season)} --detail ${detail}`;
+  $('#msg').textContent = 'researching… this usually takes 30–90 seconds';
+  let first = '', mode = 'web';
+  if (caps.browser) {
+    try { first = await webSearch(`${topic} ${season === 'next' ? '' : season} schedule dates`.replace(/\s+/g, ' '), signal); log(`got ${first.length} chars of results`); }
+    catch (e) { log('browser unavailable · ' + mcpErr(e), 'k-orange'); }
+  } else log('no browser here · Claude will answer from memory', 'k-orange');
+  if (!first) mode = 'memory';
+  const useTools = !!first && caps.tools;
+  try {
+    log('asking Claude to read the schedule…');
+    let shown = false;
+    const { text } = await caps.sample(buildPrompt(topic, first.slice(0, 9000)), {
+      signal, modelTier: 'default', tools: useTools ? TOOLS() : undefined, cache: useTools ? undefined : false,
+      onText: () => { if (!shown) { shown = true; log('writing the calendar…'); } },
+    });
+    const cal = CAL.normalise(CAL.parseAnswer(text));
+    current = { ...cal, id: '', topic, season: season === 'next' ? (cal.events.find((e) => e.start)?.start.slice(0, 4) || 'next') : season,
+      name: cal.name || `${topic} · ${season}`, built: today, mode };
+    const n = cal.events.filter((e) => e.status !== 'tba').length;
+    log(`done · ${n} dated events, ${cal.events.length - n} not announced, ${cal.feeds.length} feeds`, n ? 'k-white' : 'k-red');
+    $('#msg').innerHTML = n ? `built <b>${n}</b> events · download, subscribe or save below` : '<span class="k-red">no published dates yet · nothing to add to a calendar</span>';
+    render();
+  } catch (e) {
+    const code = e && e.code;
+    const why = code === 'cancelled' ? 'stopped' : code === 'not_granted' ? 'Claude access was declined for this page' : code === 'rate_limited' ? 'usage limit reached, try again later'
+      : code === 'tools_unavailable' ? 'tool use is not available here' : (e && e.message) || String(e);
+    log('failed · ' + why, 'k-red'); $('#msg').innerHTML = `<span class="k-red">${esc(why)}</span>`;
+  } finally {
+    running = null; $('#go').disabled = false; $('#stop').hidden = true; $('#log-note').textContent = 'idle';
+  }
+}
+
+/* ---------- export actions ---------- */
+async function copyText(text, out) {
+  try { await navigator.clipboard.writeText(text); $('#' + out).textContent = 'copied'; }
+  catch (e) { $('#' + out).textContent = 'copy blocked here · select the text and copy it yourself'; }
+}
+async function download() {
+  const out = !$('#subscribe').hidden ? 'smsg' : 'xmsg';
+  const ics = CAL.buildICS(current); const filename = CAL.slug(current.name) + '.ics';
+  if (!caps.downloads) { $('#' + out).textContent = 'downloads are not available in this view · use COPY ICS'; return; }
+  try { const r = await caps.downloads.save({ filename, data: new Blob([ics], { type: 'text/calendar' }) }); $('#' + out).textContent = `${filename} ${r.status === 'saved' ? 'saved' : 'sent to your browser'} · open it to add the events`; }
+  catch (e) { $('#' + out).textContent = e && e.code === 'declined' ? 'download cancelled' : 'download failed · use COPY ICS'; }
+}
+async function save() {
+  if (!caps.db) { $('#xmsg').textContent = 'saving needs you to be signed in to claude.ai'; return; }
+  const id = CAL.slug(current.name) + '-' + Date.now().toString(36);
+  const doc = { name: current.name, topic: current.topic, season: current.season, summary: current.summary, built: current.built, mode: current.mode,
+    events: current.events, sources: current.sources, feeds: current.feeds, caveats: current.caveats, dropped: current.dropped || [] };
+  try { await caps.db.collection('calendars').doc(id).set(doc); current = { ...current, id }; $('#xmsg').textContent = 'saved to the library'; render(); }
+  catch (e) { $('#xmsg').textContent = 'could not save · ' + ((e && e.message) || e); }
+}
+let armed = null;
+async function del(id) {
+  if (armed !== id) { armed = id; $('#lmsg').innerHTML = '<span class="k-orange">press delete again to remove it for good</span>'; return; }
+  armed = null;
+  try { await caps.db.collection('calendars').doc(id).delete(); $('#lmsg').textContent = 'deleted'; } catch (e) { $('#lmsg').textContent = 'could not delete'; }
+}
+
+/* ---------- wiring ---------- */
+const YEARS = ['next', String(new Date().getFullYear()), String(new Date().getFullYear() + 1), String(new Date().getFullYear() + 2)];
+$('#years').innerHTML = YEARS.map((y) => `<button class="btn" type="button" data-season="${y}" aria-pressed="${y === season}">${y === 'next' ? 'next edition' : y}</button>`).join('');
+$('#form').addEventListener('submit', (e) => { e.preventDefault(); if (!running) run($('#topic').value); });
+$('#stop').addEventListener('click', () => running && running.abort());
+const PAGES = ['build', 'library', 'subscribe'];
+function show(id) {
+  document.querySelectorAll('.page').forEach((p) => { p.hidden = p.id !== id; });
+  document.querySelectorAll('.tab').forEach((b) => b.dataset.page === id ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  try { localStorage.setItem('calgen-page', id); } catch (e) {}
+}
+document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => { show(b.dataset.page); scrollTo(0, 0); }));
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-season]'); if (s) { season = s.dataset.season; document.querySelectorAll('[data-season]').forEach((x) => x.setAttribute('aria-pressed', String(x === s))); return; }
+  const d = e.target.closest('[data-detail]'); if (d) { detail = d.dataset.detail; document.querySelectorAll('[data-detail]').forEach((x) => x.setAttribute('aria-pressed', String(x === d))); return; }
+  const t = e.target.closest('[data-try]'); if (t) { $('#topic').value = t.dataset.try; $('#topic').focus(); return; }
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  const act = a.dataset.act;
+  if (act === 'download') download();
+  else if (act === 'copyics') copyText(CAL.buildICS(current), 'xmsg');
+  else if (act === 'copyfeed') copyText(current.feeds[+a.dataset.i].url.replace(/^https?:/i, 'webcal:'), a.dataset.out);
+  else if (act === 'save') save();
+  else if (act === 'del') del(a.dataset.id);
+  else if (act === 'open') { const c = [...EXAMPLES, ...saved].find((x) => x.id === a.dataset.id); if (c) { current = c; render(); show('build'); $('#msg').textContent = 'opened ' + c.name; scrollTo(0, 0); } }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const i = ['1', '2', '3'].indexOf(e.key); if (i >= 0) return show(PAGES[i]);
+  if (e.key === '/') { e.preventDefault(); show('build'); $('#topic').focus(); }
+  if (e.key === 'd' || e.key === 'D') download();
+});
+
+render(); renderLibrary();
+let savedPage = null; try { savedPage = localStorage.getItem('calgen-page'); } catch (e) {}
+show(PAGES.includes(savedPage) ? savedPage : 'build');
+
+/* ---------- capabilities light up when the viewer answers ---------- */
+(async () => {
+  const use = (n) => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+  const [sample, mcp, downloads, db] = await Promise.all([use('sample'), use('mcp'), use('downloads'), use('db')]);
+  Object.assign(caps, { sample, mcp, downloads, db });
+  if (sample) { try { const lim = await sample.limits(); caps.tools = !!(lim && lim.tools); } catch (e) { caps.tools = false; } }
+  if (mcp) { try { const l = await mcp.listTools('host:claude_browser'); caps.browser = !!(l && l.servers && l.servers.length); } catch (e) { caps.browser = false; } }
+  $('#s-claude').innerHTML = sample ? 'ready' : '<span class="k-red">off</span>';
+  $('#s-search').innerHTML = caps.browser ? 'built-in browser' : '<span class="k-orange">memory only</span>';
+  $('#mode').innerHTML = !sample ? '<span class="k-red">VIEW ONLY</span>' : caps.browser ? '<span class="k-white">LIVE SEARCH</span>' : '<span class="k-orange">NO BROWSER</span>';
+  $('#hint').textContent = !sample ? 'open on claude.ai or in the Claude app to search' : caps.browser ? 'searches the web, reads the official schedule, builds an .ics' : 'no browser in this view · open in the Claude desktop app for live search';
+  if (db) {
+    const timer = setTimeout(() => { $('#lmsg').textContent = 'library is slow to load · examples shown'; }, 10000);
+    db.collection('calendars').onSnapshot((snap) => {
+      clearTimeout(timer);
+      saved = snap.docs.map((d) => ({ id: d.id, feeds: [], sources: [], caveats: [], events: [], ...d.data() })).sort((a, b) => String(b.built).localeCompare(String(a.built)));
+      renderLibrary();
+    }, () => { clearTimeout(timer); $('#lmsg').textContent = 'could not load saved calendars'; });
+  }
+})();
+</script>
